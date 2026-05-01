@@ -1,0 +1,102 @@
+{
+  "theme": "dark",
+  "archetype": "Swiss & High-Contrast (Dark Theme Studio)",
+  "color_palette": {
+    "background_base": "#0A0A0B",
+    "background_surface": "#121214",
+    "border_subtle": "rgba(255, 255, 255, 0.1)",
+    "border_strong": "rgba(255, 255, 255, 0.2)",
+    "primary_accent": "#F23F42",
+    "primary_accent_hover": "#FF5C5E",
+    "secondary_accent": "#007AFF",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_muted": "#52525B"
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Cabinet Grotesk, sans-serif",
+      "weights": ["800", "900"],
+      "tracking": "tracking-tight",
+      "h1_classes": "text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter text-white",
+      "h2_classes": "text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white",
+      "h3_classes": "text-xl sm:text-2xl font-bold tracking-tight text-white"
+    },
+    "body": {
+      "font_family": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500", "600"],
+      "tracking": "tracking-normal",
+      "base_classes": "text-base text-zinc-300 leading-relaxed"
+    },
+    "labels": {
+      "font_family": "IBM Plex Mono, monospace",
+      "classes": "text-xs uppercase tracking-[0.2em] font-semibold text-zinc-400"
+    }
+  },
+  "layout_and_spacing": {
+    "dashboard_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6. Use col-span-2 or col-span-3 for main visualizers, col-span-1 for stats/feed.",
+    "wizard_layout": "Bento split layout. Left side (col-span-4) for input/controls. Right side (col-span-8) for dynamic sticky real-time preview.",
+    "spacing_scale": "Generous spacing. Use p-6, p-8, p-12. Containers must have internal padding. Use gap-8 or gap-12 in bento layouts.",
+    "surfaces": "Cardless or sharp-edged. maximum rounded-md (6px-8px). Flat solid backgrounds (bg-[#121214]) with 1px solid border (border-white/10). No soft shadows, use 1px inner highlights if needed."
+  },
+  "components": {
+    "buttons": "Sharp corners (rounded-md), intense colors. Primary: bg-[#F23F42] hover:bg-[#FF5C5E] text-white. Secondary: bg-white/5 hover:bg-white/10 text-white border border-white/10.",
+    "inputs": "Shadcn based. bg-[#0A0A0A], border-white/10, text-white, focus:ring-1 focus:ring-[#F23F42] focus:border-[#F23F42].",
+    "wizard_progress": "Top-aligned or left-aligned step indicators. Use glowing red (#F23F42) for active state, muted zinc (#52525B) for inactive.",
+    "video_player": "Must be contained within a 16:9 aspect ratio container with bg-black/50, centered play icon in red, with a sleek timeline at the bottom."
+  },
+  "interactions_and_motion": {
+    "hover_states": "Buttons must explicitly change text color and background. Cards get a subtle border color shift to border-white/30 and -translate-y-[2px].",
+    "transitions": "Use Framer Motion for step transitions in wizard (slide left/right with fade).",
+    "glassmorphism": "Used ONLY for sticky headers or overlay modals. bg-black/60 backdrop-blur-xl border-b border-white/10."
+  },
+  "media_and_assets": {
+    "hero_backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1762541693135-fb989de961e1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwxfHxkYXJrJTIwY2luZW1hdGljJTIwbGlnaHQlMjByYXlzfGVufDB8fHx8MTc3NzYyODc2NHww&ixlib=rb-4.1.0&q=85",
+        "category": "hero_ambient",
+        "description": "Projector light beams illuminate an empty cinema auditorium - use as atmospheric overlay with low opacity"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1762009365851-c5b5b1aae3b9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGRhcmslMjB0ZWNoJTIwYmFja2dyb3VuZCUyMG5lb24lMjByZWR8ZW58MHx8fHwxNzc3NjI4NzY0fDA&ixlib=rb-4.1.0&q=85",
+        "category": "hero_tech",
+        "description": "Abstract glowing squares on a dark background - use for feature section background"
+      }
+    ],
+    "video_thumbnails": [
+      {
+        "url": "https://images.unsplash.com/photo-1611162616475-46b635cb6868?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwzfHx5b3V0dWJlJTIwdmlkZW8lMjB0aHVtYm5haWwlMjBhZXN0aGV0aWN8ZW58MHx8fHwxNzc3NjI4NzQ4fDA&ixlib=rb-4.1.0&q=85",
+        "category": "thumbnail_sample",
+        "description": "Red and white square illustration - use as placeholder for generated video"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1696041760907-ff666514fa80?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHx5b3V0dWJlJTIwdmlkZW8lMjB0aHVtYm5haWwlMjBhZXN0aGV0aWN8ZW58MHx8fHwxNzc3NjI4NzQ4fDA&ixlib=rb-4.1.0&q=85",
+        "category": "thumbnail_sample",
+        "description": "YouTube word close up"
+      }
+    ],
+    "avatars": [
+      {
+        "url": "https://images.pexels.com/photos/20040023/pexels-photo-20040023.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "creator_avatar",
+        "description": "Young man podcasting - use for user profile or testimonials"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1632056328149-b3e67e7abbc3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwyfHxjb250ZW50JTIwY3JlYXRvciUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NzYyODc0OHww&ixlib=rb-4.1.0&q=85",
+        "category": "creator_avatar",
+        "description": "Woman creator portrait - use for user profile or testimonials"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install and use 'lucide-react' for icons.",
+    "Implement the layout entirely using Tailwind CSS, no standard Bootstrap grids. Ensure full-page sections utilize 'min-h-screen' and dark background '#0A0A0B'.",
+    "The step-by-step wizard is the core interaction. Split the screen: Left for settings/inputs, Right for a sticky video preview timeline.",
+    "In the wizard, use Framer Motion for smooth slide transitions between steps.",
+    "DO NOT use Inter, Roboto, or standard sans fonts for headings. Inject Cabinet Grotesk (headings) and IBM Plex Sans (body) via Google Fonts or custom imports in index.html.",
+    "Ensure the hero section on the landing page has an atmospheric, cinematic overlay (max opacity bg-black/50) over the background image.",
+    "For all interactive elements (buttons, inputs, wizard steps), add data-testid attributes.",
+    "Use Shadcn UI for standard inputs, selects, tabs, and tables, but customize their styling to remove the 'Vercel look' (remove soft shadows, use 1px sharp borders and flat dark backgrounds).",
+    "Keep spacing wide (p-8, p-12) to match the premium creator tool aesthetic."
+  ]
+}
