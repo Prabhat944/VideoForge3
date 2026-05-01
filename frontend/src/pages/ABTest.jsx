@@ -23,6 +23,8 @@ export default function ABTest() {
     const [styleA, setStyleA] = useState("storytelling");
     const [styleB, setStyleB] = useState("listicle");
     const [scores, setScores] = useState({});
+    const [weights, setWeights] = useState({ hook: 50, title: 20, overall: 30 });
+    const [savingWeights, setSavingWeights] = useState(false);
 
     const refresh = async () => {
         setLoading(true);
@@ -40,6 +42,14 @@ export default function ABTest() {
                 };
             });
             setScores(sm);
+            const w = r.data.ab_weights || {};
+            const total = (Number(w.hook) || 0) + (Number(w.title) || 0) + (Number(w.overall) || 0);
+            const denom = total > 0 ? total : 1;
+            setWeights({
+                hook: Math.round(((Number(w.hook) || 0.5) / denom) * 100),
+                title: Math.round(((Number(w.title) || 0.2) / denom) * 100),
+                overall: Math.round(((Number(w.overall) || 0.3) / denom) * 100),
+            });
         } catch (e) {
             toast.error("Failed to load A/B test");
         } finally {
@@ -88,6 +98,31 @@ export default function ABTest() {
             toast.error(e?.response?.data?.detail || "Selection failed");
         }
     };
+
+    const saveWeights = async () => {
+        setSavingWeights(true);
+        try {
+            const r = await api.post("/projects/script/variants/weights", {
+                project_id: id,
+                hook: weights.hook / 100,
+                title: weights.title / 100,
+                overall: weights.overall / 100,
+            });
+            toast.success(`Weights saved · winner: ${r.data.ab_winner || "—"}`);
+            await refresh();
+        } catch (e) {
+            toast.error(e?.response?.data?.detail || "Failed to save weights");
+        } finally {
+            setSavingWeights(false);
+        }
+    };
+
+    const PRESETS = [
+        { id: "hook", label: "Hook-heavy", w: { hook: 50, title: 20, overall: 30 } },
+        { id: "balanced", label: "Balanced", w: { hook: 33, title: 33, overall: 34 } },
+        { id: "title", label: "Title-CTR", w: { hook: 25, title: 50, overall: 25 } },
+        { id: "overall", label: "Overall-driven", w: { hook: 20, title: 20, overall: 60 } },
+    ];
 
     if (loading) {
         return (
@@ -168,6 +203,64 @@ export default function ABTest() {
                 )}
 
                 {/* Side-by-side */}
+                {variants.length > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-[#121214] p-5 mb-6" data-testid="ab-weights-panel">
+                        <div className="flex items-start justify-between flex-wrap gap-3">
+                            <div>
+                                <div className="font-mono-tag text-xs text-zinc-500 mb-1">/ WEIGHTING</div>
+                                <div className="font-display text-lg font-bold tracking-tight">How should we pick the winner?</div>
+                                <p className="text-xs text-zinc-500 mt-1">
+                                    Different niches reward different signals — drag to dial in. Values normalise automatically.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {PRESETS.map((p) => (
+                                    <button key={p.id}
+                                        data-testid={`weight-preset-${p.id}`}
+                                        onClick={() => setWeights(p.w)}
+                                        className="font-mono-tag text-[11px] uppercase px-3 py-1.5 rounded-md border border-white/10 text-zinc-300 hover:bg-white/5">
+                                        {p.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="mt-5 grid sm:grid-cols-3 gap-5">
+                            {[
+                                { k: "hook", label: "Hook" },
+                                { k: "title", label: "Title" },
+                                { k: "overall", label: "Overall" },
+                            ].map(({ k, label }) => (
+                                <div key={k}>
+                                    <div className="flex justify-between text-xs font-mono-tag text-zinc-500 mb-1">
+                                        <span>{label.toUpperCase()}</span>
+                                        <span className="text-zinc-200" data-testid={`weight-${k}-value`}>{weights[k]}%</span>
+                                    </div>
+                                    <Slider
+                                        data-testid={`weight-${k}-slider`}
+                                        min={0} max={100} step={5}
+                                        value={[weights[k]]}
+                                        onValueChange={(val) => setWeights((p) => ({ ...p, [k]: val[0] }))}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-4 flex items-center justify-between flex-wrap gap-2">
+                            <div className="text-[11px] font-mono-tag text-zinc-500">
+                                NORMALISED: HOOK {Math.round((weights.hook / Math.max(weights.hook + weights.title + weights.overall, 1)) * 100)}%
+                                · TITLE {Math.round((weights.title / Math.max(weights.hook + weights.title + weights.overall, 1)) * 100)}%
+                                · OVERALL {Math.round((weights.overall / Math.max(weights.hook + weights.title + weights.overall, 1)) * 100)}%
+                            </div>
+                            <Button onClick={saveWeights} disabled={savingWeights}
+                                data-testid="save-weights-btn"
+                                className="bg-[#F23F42] hover:bg-[#FF5C5E] text-white">
+                                {savingWeights
+                                    ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</>)
+                                    : "Save & recompute winner"}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
                 <div className="grid md:grid-cols-2 gap-6">
                     {variants.map((v) => {
                         const isWinner = winner === v.id;

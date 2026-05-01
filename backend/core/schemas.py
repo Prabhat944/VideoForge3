@@ -70,6 +70,7 @@ class Project(BaseModel):
     template_id: Optional[str] = None
     ab_winner: Optional[str] = None
     ab_metrics: Optional[dict] = None
+    ab_weights: Optional[dict] = None
     created_at: str
     updated_at: str
 
@@ -146,6 +147,15 @@ class VariantScoreRequest(BaseModel):
     title_score: float = 0.0
     overall_score: float = 0.0
     note: Optional[str] = None
+
+
+class ABWeightsUpdate(BaseModel):
+    """Configurable per-project weighting for the A/B winner pick.
+    Values are normalised server-side so they don't have to sum to 1.0."""
+    project_id: str
+    hook: float = 0.5
+    title: float = 0.2
+    overall: float = 0.3
 
 
 # ---- Billing ----

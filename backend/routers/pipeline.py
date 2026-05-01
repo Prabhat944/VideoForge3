@@ -30,9 +30,21 @@ from core.schemas import (
     ScriptGenerateRequest, VoiceGenerateRequest, ThumbnailGenerateRequest,
     ScenesGenerateRequest, RenderRequest, PublishRequest,
     VariantGenerateRequest, SelectVariantRequest, VariantScoreRequest,
+    ABWeightsUpdate,
 )
 
 router = APIRouter(tags=["pipeline"])
+
+DEFAULT_AB_WEIGHTS = {"hook": 0.5, "title": 0.2, "overall": 0.3}
+
+
+def _resolved_weights(proj: dict) -> dict:
+    """Return normalised hook/title/overall weights for this project (default 50/20/30)."""
+    w = (proj.get("ab_weights") or DEFAULT_AB_WEIGHTS).copy()
+    total = float(w.get("hook", 0)) + float(w.get("title", 0)) + float(w.get("overall", 0))
+    if total <= 0:
+        return DEFAULT_AB_WEIGHTS
+    return {k: float(w.get(k, 0)) / total for k in ("hook", "title", "overall")}
 
 
 # ---------------- Script ----------------
@@ -573,7 +585,7 @@ async def get_variants(project_id: str, current=Depends(get_current_user)):
     proj = await db.projects.find_one(
         {"id": project_id, "user_id": current["id"]},
         {"_id": 0, "id": 1, "topic": 1, "niche": 1, "script_variants": 1,
-         "selected_variant_id": 1, "ab_winner": 1, "ab_metrics": 1},
+         "selected_variant_id": 1, "ab_winner": 1, "ab_metrics": 1, "ab_weights": 1},
     )
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -585,6 +597,7 @@ async def get_variants(project_id: str, current=Depends(get_current_user)):
         "selected_variant_id": proj.get("selected_variant_id"),
         "ab_winner": proj.get("ab_winner"),
         "ab_metrics": proj.get("ab_metrics") or {},
+        "ab_weights": proj.get("ab_weights") or DEFAULT_AB_WEIGHTS,
     }
 
 
@@ -615,6 +628,48 @@ async def select_variant(payload: SelectVariantRequest, current=Depends(get_curr
     return {"ok": True, "variant_id": payload.variant_id, "script": script}
 
 
+@router.post("/projects/script/variants/weights")
+async def set_ab_weights(payload: ABWeightsUpdate, current=Depends(get_current_user)):
+    """Set per-project A/B winner weighting. Recomputes ab_winner from existing scores."""
+    proj = await db.projects.find_one(
+        {"id": payload.project_id, "user_id": current["id"]}, {"_id": 0}
+    )
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    weights = {"hook": payload.hook, "title": payload.title, "overall": payload.overall}
+    norm = _resolved_weights({"ab_weights": weights})
+
+    variants = proj.get("script_variants") or []
+    metrics = {}
+    for v in variants:
+        s = v.get("score") or {}
+        if not s:
+            continue
+        weighted = round(
+            norm["hook"] * float(s.get("hook", 0) or 0)
+            + norm["title"] * float(s.get("title", 0) or 0)
+            + norm["overall"] * float(s.get("overall", 0) or 0),
+            2,
+        )
+        s["weighted"] = weighted
+        metrics[v["id"]] = weighted
+    winner = max(metrics.items(), key=lambda kv: kv[1])[0] if metrics else None
+
+    await db.projects.update_one(
+        {"id": payload.project_id},
+        {"$set": {
+            "ab_weights": weights,
+            "script_variants": variants,
+            "ab_metrics": metrics,
+            "ab_winner": winner,
+            "updated_at": now_iso(),
+        }},
+    )
+    return {"ok": True, "ab_weights": weights, "normalised": norm,
+            "ab_metrics": metrics, "ab_winner": winner}
+
+
 @router.post("/projects/script/variants/score")
 async def score_variant(payload: VariantScoreRequest, current=Depends(get_current_user)):
     """Persist user-provided rating for an A/B variant; aggregate into ab_metrics."""
@@ -638,16 +693,16 @@ async def score_variant(payload: VariantScoreRequest, current=Depends(get_curren
     if not found:
         raise HTTPException(status_code=404, detail="Variant not found")
 
+    norm = _resolved_weights(proj)
     metrics = {}
     for v in variants:
         s = v.get("score") or {}
         if not s:
             continue
-        # Weighted: hook 50% · title 20% · overall 30% (per product spec).
         weighted = round(
-            0.5 * float(s.get("hook", 0) or 0)
-            + 0.2 * float(s.get("title", 0) or 0)
-            + 0.3 * float(s.get("overall", 0) or 0),
+            norm["hook"] * float(s.get("hook", 0) or 0)
+            + norm["title"] * float(s.get("title", 0) or 0)
+            + norm["overall"] * float(s.get("overall", 0) or 0),
             2,
         )
         s["weighted"] = weighted
@@ -659,4 +714,4 @@ async def score_variant(payload: VariantScoreRequest, current=Depends(get_curren
         {"$set": {"script_variants": variants, "ab_metrics": metrics,
                   "ab_winner": winner, "updated_at": now_iso()}},
     )
-    return {"ok": True, "ab_metrics": metrics, "ab_winner": winner}
+    return {"ok": True, "ab_metrics": metrics, "ab_winner": winner, "weights": proj.get("ab_weights") or DEFAULT_AB_WEIGHTS}
