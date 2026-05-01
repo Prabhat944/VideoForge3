@@ -1,0 +1,59 @@
+{
+  "summary": "Phase 3 backend regression: 56/59 pass, 2 expected skips, 1 critical failure. Phase 3 voice tier (tts-1-hd via 'hd_*' ids), free voice (tts-1 alloy), updated /voices contract (19 voices = 6 free + 6 HD + 7 ElevenLabs), multi-scene render scenes_used field, analytics summary contract (youtube_connected/data_source/synthetic), and yt-analytics.readonly scope on auth-url all WORK. Phase 1 & Phase 2 endpoints all green (auth, projects CRUD, script, thumbnail, trends, render, publish-fallback, billing checkout/status/plans/webhook, youtube auth-url/status/disconnect, series). Stripe billing/status from previous iteration is now PASSING (regression resolved). CRITICAL ISSUE: POST /api/projects/scenes endpoint is NOT IMPLEMENTED in server.py - returns 405 'Method Not Allowed' (the GET /projects/{project_id} route swallows it). Per-scene image generation feature is therefore non-functional, which means the multi-scene render path with crossfade transitions can never trigger and always falls back to single-image ken-burns.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/projects/scenes",
+        "issue": "Endpoint MISSING from server.py. Returns 405 Method Not Allowed because no @api_router.post('/projects/scenes') handler exists; only GET /projects/{project_id} matches the path. Direct grep on server.py confirms no scenes endpoint defined. Phase 3 spec requires: generate up to 6 GPT Image 1 images in parallel, persist scene_images on project, return {scenes:[{index,duration,has_image}]}. Without this endpoint, multi-scene xfade render path in /api/projects/render can never activate (scene_images stays empty -> always falls through to single-image ken-burns).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/projects/voice (ElevenLabs)",
+        "issue": "ElevenLabs returns 401 detected_unusual_activity from cloud IP (free-tier-from-proxy block). Expected per agent context. Surfaced via 500 with detail. Test auto-skips. Not a code bug."
+      },
+      {
+        "endpoint": "GET /api/analytics/summary",
+        "issue": "data_source can be 'synthetic' even if youtube_connected=true when the user has NO real uploads (real_series falls back). Logic: data_source='youtube' only when real_series is set. This is acceptable but documenting: a connected user with zero real uploads will still see data_source='synthetic'."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_backend.py",
+    "/app/backend/tests/test_phase2_backend.py",
+    "/app/backend/tests/test_videoforge_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/phase3_results.xml"
+  ],
+  "action_items": [
+    "IMPLEMENT POST /api/projects/scenes endpoint in server.py. Suggested impl: validate project_id+ownership, ensure script exists, take scenes from proj.script.scenes (4-6), call OpenAI GPT Image 1 (model='gpt-image-1') in parallel via asyncio.gather with per-scene prompts derived from scene.visual or scene.narration, persist scene_images=[{index,duration,image_data_url,prompt}] back to proj, return {scenes:[{index,duration,has_image}]}. Include 60-180s timeout tolerance and partial-failure handling (set has_image=False for failed scenes, do NOT fail entire request).",
+    "Once /scenes is added, verify multi-scene render path: POST /api/projects/render should return scenes_used > 0 and produce a video with crossfade transitions (render_service.render_scenes_mp4)."
+  ],
+  "critical_code_review_comments": [
+    "MISSING ENDPOINT: server.py has no @api_router.post('/projects/scenes') - confirmed by route enumeration (lines 184-1068). render_video at L643 reads proj.scene_images but nothing ever populates it.",
+    "Route ordering: /projects/{project_id} GET is defined before any /projects/scenes specific route; even if a GET /projects/scenes existed it would be caught as project_id='scenes'. When adding POST /projects/scenes this is fine, but if a future GET /projects/scenes is needed it must be declared before /projects/{project_id}.",
+    "analytics_summary L950: ctr formula `views / max(views+1,1) * 100 * 0.05` simplifies to a near-constant 4.99% - intentional placeholder but flag for replacement with real YouTube Analytics API CTR (impressionClickThroughRate dimension).",
+    "server.py is now ~1090 lines; previous reviewer also recommended splitting. Phase 3 will add the scenes endpoint making this worse - strong recommendation to split into modules.",
+    "Voice/script/thumbnail/scenes will all push large base64 blobs into a single Mongo doc. Per-scene 6 images can easily exceed 16MB BSON limit. Move to GridFS or object storage before shipping the scenes endpoint.",
+    "render_service.render_scenes_mp4 is implemented but unreachable - dead-code risk until /scenes ships.",
+    "publish_youtube fallback path (no YT token) returns real:false success - consider returning 400 instead so user knows to render+connect."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_backend.py (new)",
+    "/app/backend/tests/test_phase2_backend.py (use authed session for video file fetch since GET /projects/{id}/video now requires auth; added test_get_video_requires_auth)",
+    "/app/backend/tests/test_videoforge_backend.py (voices test updated to expect 19 with HD tier)"
+  ],
+  "success_rate": {
+    "backend": "94.9% (56/59 pass, 2 expected skips, 1 critical fail = missing endpoint)",
+    "frontend": "N/A (not requested)"
+  },
+  "test_credentials": "tester@videoforge.ai / TestPass123! (auto-registered)",
+  "seed_data_creation": "Tests create TEST_-prefixed projects, fresh users, billing checkout sessions, voice/thumbnail/render artifacts. Most clean up via DELETE /api/projects/{id}; some MP4s remain in /app/backend/renders.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. Phase 3 test file is /app/backend/tests/test_phase3_backend.py with 11 tests across TestVoicesPhase3, TestHDVoiceGeneration, TestScenesEndpoint, TestMultiSceneRender, TestAnalyticsSummary. The single failing test (TestScenesEndpoint::test_scenes_endpoint_exists) MUST be re-run after main agent implements POST /api/projects/scenes; test_scenes_persisted_on_project will then auto-unskip and verify scene_images persistence. ElevenLabs test still expected to skip from cloud IP. ffmpeg/ffprobe required (already installed in container). HD voice tests (hd_alloy, hd_nova) take ~30-60s each due to OpenAI tts-1-hd cloud calls.",
+  "rca of the issue": "The Phase 3 review request claims POST /api/projects/scenes is implemented and generates per-scene images via GPT Image 1. Inspection of /app/backend/server.py shows ONLY these POST routes under /projects: register, login, /projects (create), /projects/script, /projects/voice, /projects/thumbnail, /projects/render, /projects/publish, /projects/series. There is NO /projects/scenes handler. Live curl confirms 405. The render endpoint at L643 reads proj.scene_images but no code path writes to that key, so the multi-scene xfade branch is unreachable. Resolution: main agent must add the endpoint. Once added, re-run pytest -- the test_scenes_endpoint_exists assertion will validate {scenes:[{index,duration,has_image}]} contract and the persistence sub-test will validate scene_images on project."
+}

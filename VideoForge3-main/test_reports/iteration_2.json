@@ -1,0 +1,55 @@
+{
+  "summary": "Phase 2 backend regression testing of VideoForge AI. 46/47 tests pass (1 skipped: ElevenLabs 401 expected). 1 failure on /api/billing/status/{session_id} due to Stripe 'No such checkout.session' (likely emergentintegrations StripeCheckout issue between create and retrieve). All Phase 1 endpoints continue to pass. Render endpoint required ffmpeg/ffprobe install (now resolved).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/billing/status/{session_id}",
+        "issue": "Stripe returns 'No such checkout.session' when polling status for a session that /api/billing/checkout just successfully created. The session_id is real (e.g. cs_test_a1fuhmW2TbrpbVPzb0YOld6hoj9Qpr0vGWqCGs1thMOxaHcTYO6tUChJrG). Returns 500 'Status fetch failed: Failed to retrieve session status'. Earlier observed an alternate failure: Pydantic validation in emergentintegrations CheckoutStatusResponse - 'metadata: Input should be a valid dictionary' (StripeObject not coerced to dict). Both errors appear to be inside the StripeCheckout integration class. Users will not be able to check payment completion via polling.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/projects/voice (ElevenLabs)",
+        "issue": "ElevenLabs returns 401 detected_unusual_activity from this cloud IP (free-tier-from-proxy block). Expected per agent context. Code surfaces the error correctly via 500 with descriptive detail. NOT a code bug."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase2_backend.py",
+    "/app/backend/tests/test_videoforge_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Investigate Stripe billing/status failure: 'No such checkout.session' on a freshly-created session_id. Likely a discrepancy in how emergentintegrations StripeCheckout routes create vs. retrieve calls. Check if create_checkout_session is going through an Emergent proxy while get_checkout_status hits Stripe directly with a key that doesn't own the session. Reproduce: POST /api/billing/checkout {plan_id:'creator', origin_url:'<APP>'} -> note session_id -> immediately GET /api/billing/status/{session_id}.",
+    "Render service depends on ffmpeg/ffprobe binaries - install them in Docker image / startup script (sudo apt-get install -y ffmpeg). Currently installed in this container manually; will be lost on redeploy unless added to provisioning."
+  ],
+  "critical_code_review_comments": [
+    "render_service requires ffmpeg + ffprobe at OS level - server.py /api/projects/render endpoint surfaces 'No such file or directory: ffprobe' as 500. Add ffmpeg to backend Dockerfile or document in setup.",
+    "billing_status (server.py L795-832): No try/except around get_checkout_status's pydantic-level errors - any library exception bubbles up as 500. Wrap with friendlier error and consider logging the raw stripe response for debugging.",
+    "publish_youtube fallback path: when YouTube is connected but video_path is missing, silently falls back to mock instead of telling the user 'render the video first'. Consider returning 400.",
+    "render endpoint serves video files via /api/projects/{id}/video without auth - any unauthenticated visitor with a project_id can download the rendered MP4. Add auth + ownership check.",
+    "youtube_callback uses RedirectResponse to APP_BASE_URL/dashboard?yt_error=... but never validates that APP_BASE_URL is configured - could 500 with empty redirect URL.",
+    "server.py is now ~1006 lines (up from ~715). Strongly recommend splitting into modules: auth.py, projects.py, voice.py, render.py, youtube.py, billing.py.",
+    "PLANS dict embedded in code - if used by frontend pricing page, fine, but consider moving to db/config so price changes don't require redeploy.",
+    "Stripe webhook returns {ok: true} even on validation failures inside handle_webhook - though detail there may already be raised; confirm Stripe will retry on 400.",
+    "Voice/script/thumbnail endpoints persist large base64 blobs into MongoDB (mp3, png) - render now uses these, so the project doc is even larger. Move to GridFS / object storage."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase2_backend.py (new)",
+    "/app/backend/tests/test_videoforge_backend.py (updated voices test for 13 voices)",
+    "/app/backend/tests/conftest.py (fresh_email fixture changed to function scope)"
+  ],
+  "success_rate": {
+    "backend": "97.8% (46/47 pass, 1 skipped expected, 1 fail)",
+    "frontend": "N/A (not requested)"
+  },
+  "test_credentials": "tester@videoforge.ai / TestPass123! (auto-registered)",
+  "seed_data_creation": "Tests create TEST_-prefixed users, projects, billing sessions and ElevenLabs/render artifacts. Most clean up after themselves; a few rendered MP4s remain in /app/backend/renders.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. ffmpeg+ffprobe must be installed (apt-get install -y ffmpeg). ElevenLabs 401 from cloud IP is expected and the eleven test is auto-skipped on that case. The /api/billing/status failure is reproducible 100% via the test_status_for_checkout test. Phase 2 covers: 13 voices list, ElevenLabs voice (skipped), OpenAI voice (alloy), YouTube status/auth-url/disconnect with auth guards, Render full flow + MP4 serve + 404, Publish fallback (real:false), Billing plans (29/99/5), checkout creator success, invalid plan 400, status (FAILS), other-user 404, webhook bad-sig 400.",
+  "rca of the issue": "Stripe billing/status: emergentintegrations.payments.stripe.checkout.StripeCheckout.create_checkout_session returns a CheckoutSessionResponse with session_id, but a subsequent call to get_checkout_status(session_id) fails. Stripe API replies 'No such checkout.session' which means the secret key being used by StripeCheckout for retrieve is not the same Stripe account that owns the session created earlier. Most likely the create path uses an Emergent proxy that auto-injects a real Stripe key, while retrieve path uses STRIPE_API_KEY=sk_test_emergent literally against api.stripe.com. Resolution: have main agent verify the Emergent integration library version, the expected behavior of get_checkout_status, and either upgrade emergentintegrations or call Stripe SDK directly for retrieve."
+}

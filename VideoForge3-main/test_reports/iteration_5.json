@@ -1,0 +1,54 @@
+{
+  "summary": "Stage2 modular refactor backend verification: 29/29 new stage2 tests + 25/25 phase4 regression = 54/54 PASS. P0 verified: POST /api/projects/voice response does NOT contain audio_b64 (only audio_url, format, provider, voice_id) and Mongo project.voice stores audio_path + audio_url + provider/format but NOT audio_b64. DB audit across all 9 projects confirms zero legacy blobs remain (0 with voice.audio_b64, 0 with data: thumbnail_url, 0 with scene image_data_url). The MP3 file physically exists at /app/backend/media/voices/{pid}/voice.mp3 and is served authenticated via /api/media/... with both Bearer and ?token= working; unauth returns 401. Niche templates: GET /api/templates returns 8 templates across finance/horror/motivation/facts with correct filtering by niche, GET by id + 404, and POST /api/projects/from-template correctly stamps template_id/tone/style/niche/duration on the new project. A/B variants: POST /script/variants returns A+B scripts, GET /projects/{id}/variants returns full dashboard payload (both scripts + scores + winner + metrics), POST /script/variants/score persists hook/title/overall + note per variant and recomputes ab_winner as the max overall; POST /script/select-variant copies chosen script onto project.script and sets selected_variant_id/ab_winner/status=script_ready. Script + voice + thumbnail + render MP4 chain works end-to-end via filesystem-only storage. Scenes 409 idempotency intact. Aux endpoints (trends ai/reddit fallback, youtube status+auth-url, billing plans, calendar items, analytics summary) all green. Module refactor: server.py is now 70 lines mounting 11 routers (auth, projects, pipeline, agent, billing, youtube, media, trends, templates, calendar, analytics).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/youtube/auth-url",
+        "issue": "Carry-over from iteration 4: URL is returned and passes (host=accounts.google.com) but client_id query param is empty. Main agent should verify youtube_service reads GOOGLE_CLIENT_ID after load_dotenv. Not blocking stage2 sign-off."
+      },
+      {
+        "endpoint": "GET /api/trends?source=reddit",
+        "issue": "REDDIT_CLIENT_ID/SECRET are empty in backend/.env so the endpoint always falls through to static/AI fallback. Graceful (no 500), but 'real Reddit trends' feature is inert until creds are supplied. This matches the request contract ('reddit OAuth not configured so falls through to AI/static fallback gracefully')."
+      },
+      {
+        "endpoint": "POST /api/projects/script/variants/score",
+        "issue": "Winner is picked on `overall_score` alone; hook_score/title_score are stored but never influence ab_winner. If product intent is weighted metric, this is a logic gap. Functional for MVP."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_stage2_backend.py",
+    "/app/test_reports/pytest/stage2_results.xml",
+    "/app/test_reports/pytest/phase4_regression.xml"
+  ],
+  "action_items": [
+    "(Low) Fix youtube_service auth URL client_id env read (pre-existing from iteration 4).",
+    "(Low) Decide if A/B winner should be overall_score only or weighted (hook*w1 + title*w2 + overall*w3). Current: overall only.",
+    "(Optional) Populate REDDIT_CLIENT_ID/SECRET to exercise real Reddit trends; fallback works today.",
+    "(Optional) Consider parallelizing scenes generation with asyncio.gather + semaphore; currently serial (~20s*6=120s)."
+  ],
+  "critical_code_review_comments": [
+    "server.py cleanly modularized from 1700 -> 70 lines with 11 routers. Excellent separation.",
+    "pipeline.py voice endpoint: audio_b64 intermediate var is only used as a pipe to storage_service.save_voice (base64.b64decode -> bytes -> disk). Clean. No leak into DB or response confirmed by test + direct Mongo inspection.",
+    "render endpoint still reads the MP3 back as base64 via storage_service.read_b64 for ffmpeg -- OK given render_service accepts data URL, but a streaming/file path would be more memory efficient for long-form videos.",
+    "Migrations on startup (migrate_base64_to_fs) are idempotent and ran cleanly; no legacy blobs remain across 9 projects.",
+    "CreateFromTemplateRequest.topic falls back to tpl['topic_template'] -- good default, but topic_template contains placeholders like '{STOCK}' and '{NAME}' that are never substituted. If user doesn't provide topic, those placeholders leak into LLM prompts unchanged.",
+    "Scoring endpoint: winner only considers overall_score. Hook/title are persisted but ignored in the winner pick -- document intent or compute weighted.",
+    "Pipeline render uses thumbnail when a scene has no image_path -- OK fallback; consider warning logging if a scene is missing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_stage2_backend.py (new, 29 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (54/54: stage2 29/29 + phase4 regression 25/25)",
+    "frontend": "N/A (not requested)"
+  },
+  "test_credentials": "tester@videoforge.ai / TestPass123! (auto-registered by conftest)",
+  "seed_data_creation": "Created TEST_-prefixed projects for stage2 (pipeline, AB variants, series, templates, create/delete). MP3 + thumbnail + MP4 artefacts persist under /app/backend/media/{voices,thumbnails,scenes}/{pid}/ and /app/backend/renders/ after tests complete.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/test_stage2_backend.py -v --junitxml=/app/test_reports/pytest/stage2_results.xml (~55s). Add phase4 regression with tests/test_phase4_backend.py (~170s). Both green as of iteration 5. P0 voice fix is permanent; to re-verify, curl POST /api/projects/voice with a test project's id+Bearer token and assert no 'audio_b64' in the JSON and that /api/media/voices/{pid}/voice.mp3 returns audio/mpeg. A/B: generate variants then POST /score twice with different overall_score; the larger score must appear as ab_winner in the GET /variants dashboard. Templates: exactly 8 items under NICHE_TEMPLATES (2 each for finance/horror/motivation/facts).",
+  "rca of the issue": "N/A — no unresolved critical issue. P0 base64-in-Mongo storage bug is fully resolved at both code and data layer."
+}
