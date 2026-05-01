@@ -161,7 +161,7 @@ async def generate_voice(payload: VoiceGenerateRequest, current=Depends(get_curr
         logging.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=f"Voice generation failed: {str(e)}")
 
-    # P0: write the MP3 to disk; only store the path + url in Mongo (no base64).
+    # Save MP3 to disk for local access, but also store base64 in DB for production/container deployments
     voice_path = storage_service.save_voice(payload.project_id, base64.b64decode(audio_b64))
     voice_url = f"{APP_BASE_URL}/api/media/{voice_path}"
 
@@ -171,6 +171,7 @@ async def generate_voice(payload: VoiceGenerateRequest, current=Depends(get_curr
         "speed": payload.speed,
         "audio_path": voice_path,
         "audio_url": voice_url,
+        "audio_b64": audio_b64,  # Store base64 as fallback for stateless deployments
         "format": "mp3",
         "generated_at": now_iso(),
     }
@@ -214,13 +215,20 @@ async def generate_thumbnail(payload: ThumbnailGenerateRequest, current=Depends(
         img_bytes = images[0]
         thumb_path = storage_service.save_thumbnail(payload.project_id, img_bytes)
         thumb_url = f"{APP_BASE_URL}/api/media/{thumb_path}"
+        # Store base64 as fallback for stateless deployments
+        thumb_b64_data_url = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
     except Exception as e:
         logging.error(f"Thumbnail gen error: {e}")
         raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {str(e)}")
 
     await db.projects.update_one(
         {"id": payload.project_id},
-        {"$set": {"thumbnail_url": thumb_url, "thumbnail_path": thumb_path, "updated_at": now_iso()}},
+        {"$set": {
+            "thumbnail_url": thumb_url, 
+            "thumbnail_path": thumb_path, 
+            "thumbnail_b64": thumb_b64_data_url,  # Store base64 as fallback
+            "updated_at": now_iso()
+        }},
     )
     return {"thumbnail_url": thumb_url}
 
@@ -256,8 +264,11 @@ async def _generate_scenes_background(project_id: str, user_id: str):
             images = await asyncio.to_thread(_gen_sync, prompt)
             if images:
                 rel_path = storage_service.save_scene_image(project_id, placeholders[i]["index"], images[0])
+                # Store base64 as fallback for stateless deployments
+                img_b64_data_url = f"data:image/png;base64,{base64.b64encode(images[0]).decode('utf-8')}"
                 placeholders[i]["image_path"] = rel_path
                 placeholders[i]["image_url"] = f"{APP_BASE_URL}/api/media/{rel_path}"
+                placeholders[i]["image_data_url"] = img_b64_data_url  # Store base64 as fallback
                 placeholders[i]["status"] = "ready"
             else:
                 placeholders[i]["status"] = "failed"
@@ -338,20 +349,47 @@ async def scenes_status(project_id: str, current=Depends(get_current_user)):
 
 # ---------------- Render ----------------
 def _audio_b64_for(voice: dict) -> str:
+    """Get audio base64, trying filesystem first, falling back to DB."""
     if voice.get("audio_path"):
-        return storage_service.read_b64(voice["audio_path"])
+        try:
+            return storage_service.read_b64(voice["audio_path"])
+        except FileNotFoundError:
+            # File doesn't exist on filesystem (container restart/ephemeral storage)
+            # Fall back to base64 from database
+            logging.warning(f"Voice file not found on filesystem: {voice['audio_path']}, using DB fallback")
+            pass
+    # Return audio_b64 from database (fallback for stateless deployments)
     return voice.get("audio_b64", "")
 
 
 def _thumb_data_url(proj: dict) -> str:
+    """Get thumbnail data URL, trying filesystem first, falling back to DB base64."""
+    # Try reading from filesystem if path exists
     if proj.get("thumbnail_path"):
-        return f"data:image/png;base64,{storage_service.read_b64(proj['thumbnail_path'])}"
+        try:
+            return f"data:image/png;base64,{storage_service.read_b64(proj['thumbnail_path'])}"
+        except FileNotFoundError:
+            # File doesn't exist on filesystem, try to use base64 from DB
+            logging.warning(f"Thumbnail file not found on filesystem: {proj['thumbnail_path']}, using DB fallback")
+            if proj.get("thumbnail_b64"):
+                return proj["thumbnail_b64"]
+    
+    # Check if we have base64 stored in DB
+    if proj.get("thumbnail_b64"):
+        return proj["thumbnail_b64"]
+    
+    # Fall back to thumbnail_url
     thumb_url = proj.get("thumbnail_url", "") or ""
     if thumb_url.startswith("data:"):
         return thumb_url
     if "/api/media/thumbnails/" in thumb_url:
-        rel = thumb_url.split("/api/media/", 1)[-1]
-        return f"data:image/png;base64,{storage_service.read_b64(rel)}"
+        try:
+            rel = thumb_url.split("/api/media/", 1)[-1]
+            return f"data:image/png;base64,{storage_service.read_b64(rel)}"
+        except FileNotFoundError:
+            logging.warning(f"Thumbnail file not found for URL: {thumb_url}")
+            # Return empty data URL as last resort
+            return "data:image/png;base64,"
     return thumb_url
 
 
@@ -380,7 +418,11 @@ async def render_video(payload: RenderRequest, current=Depends(get_current_user)
             scenes_input = []
             for s in scene_images:
                 if s.get("image_path"):
-                    img_data_url = f"data:image/png;base64,{storage_service.read_b64(s['image_path'])}"
+                    try:
+                        img_data_url = f"data:image/png;base64,{storage_service.read_b64(s['image_path'])}"
+                    except FileNotFoundError:
+                        logging.warning(f"Scene image file not found: {s['image_path']}, using fallback")
+                        img_data_url = s.get("image_data_url") or thumb_data_url
                 elif s.get("image_data_url"):
                     img_data_url = s["image_data_url"]
                 else:
