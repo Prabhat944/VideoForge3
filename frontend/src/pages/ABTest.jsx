@@ -262,8 +262,8 @@ export default function ABTest() {
                                         </Button>
                                     </div>
                                     {metrics[v.id] !== undefined && (
-                                        <div className="text-[11px] font-mono-tag text-zinc-500">
-                                            CURRENT: {Number(metrics[v.id]).toFixed(1)} / 10
+                                        <div className="text-[11px] font-mono-tag text-zinc-500" data-testid={`weighted-${v.id}`}>
+                                            WEIGHTED (HOOK 50% · TITLE 20% · OVERALL 30%): <span className="text-zinc-200">{Number(metrics[v.id]).toFixed(2)}</span> / 10
                                         </div>
                                     )}
                                 </div>

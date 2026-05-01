@@ -155,3 +155,90 @@ async def fetch_youtube_trends(token_dict: dict, region_code: str = "US", limit:
         return out[:limit]
     except Exception:
         return None
+
+
+# Niche → seed keywords used to query Google Trends rising/related queries.
+NICHE_KEYWORDS = {
+    "finance": ["personal finance", "stock market", "investing", "crypto"],
+    "horror": ["horror story", "scary story", "true crime", "paranormal"],
+    "motivation": ["motivation", "self improvement", "morning routine", "productivity"],
+    "education": ["explained", "how it works", "history facts"],
+    "facts": ["mind blowing facts", "did you know", "interesting facts"],
+    "general": ["trending now", "viral"],
+}
+
+
+async def fetch_google_trends(niche: str, limit: int = 8) -> List[dict]:
+    """Return rising / related Google searches via pytrends. Sync lib → run in thread.
+
+    pytrends has no public API key; it relies on a public Google endpoint that is
+    rate-limited but usually works from cloud IPs.
+    """
+    import asyncio
+
+    def _run() -> List[dict]:
+        try:
+            from pytrends.request import TrendReq
+        except Exception:
+            return []
+        keywords = NICHE_KEYWORDS.get(niche, NICHE_KEYWORDS["general"])
+        out: List[dict] = []
+        try:
+            py = TrendReq(hl="en-US", tz=360, timeout=(10, 25))
+            for kw in keywords[:3]:
+                try:
+                    py.build_payload([kw], timeframe="now 7-d", geo="")
+                    related = py.related_queries() or {}
+                    bucket = related.get(kw) or {}
+                    rising = bucket.get("rising")
+                    top = bucket.get("top")
+                    rows = []
+                    if rising is not None and not rising.empty:
+                        rows.extend(rising.head(6).to_dict("records"))
+                    elif top is not None and not top.empty:
+                        rows.extend(top.head(6).to_dict("records"))
+                    for r in rows:
+                        title = str(r.get("query", "")).strip()
+                        if not title:
+                            continue
+                        try:
+                            growth = int(r.get("value", 0) or 0)
+                        except Exception:
+                            growth = 0
+                        # Rising values can be huge ("Breakout" = +5000) → log-flatten.
+                        if growth >= 5000:
+                            viral = 95
+                        elif growth >= 1000:
+                            viral = 88
+                        elif growth >= 200:
+                            viral = 78
+                        else:
+                            viral = 60 + min(15, growth // 20)
+                        competition = "low" if growth < 200 else "medium" if growth < 1500 else "high"
+                        out.append({
+                            "title": title[:120],
+                            "description": f"Rising query for '{kw}' · {growth}+ growth",
+                            "viral_score": viral,
+                            "competition": competition,
+                            "suggested_tags": [niche, kw, "trending", "google"],
+                            "platform": "google_trends",
+                            "category": kw,
+                            "source_url": f"https://trends.google.com/trends/explore?q={title.replace(' ', '+')}",
+                            "growth": growth,
+                        })
+                except Exception:
+                    continue
+        except Exception:
+            return []
+        # Dedupe by title and return top N by viral_score
+        seen = set()
+        deduped = []
+        for t in out:
+            if t["title"].lower() in seen:
+                continue
+            seen.add(t["title"].lower())
+            deduped.append(t)
+        deduped.sort(key=lambda x: -x["viral_score"])
+        return deduped[:limit]
+
+    return await asyncio.to_thread(_run)

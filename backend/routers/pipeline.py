@@ -638,9 +638,20 @@ async def score_variant(payload: VariantScoreRequest, current=Depends(get_curren
     if not found:
         raise HTTPException(status_code=404, detail="Variant not found")
 
-    metrics = {
-        v["id"]: (v.get("score") or {}).get("overall", 0.0) for v in variants if v.get("score")
-    }
+    metrics = {}
+    for v in variants:
+        s = v.get("score") or {}
+        if not s:
+            continue
+        # Weighted: hook 50% · title 20% · overall 30% (per product spec).
+        weighted = round(
+            0.5 * float(s.get("hook", 0) or 0)
+            + 0.2 * float(s.get("title", 0) or 0)
+            + 0.3 * float(s.get("overall", 0) or 0),
+            2,
+        )
+        s["weighted"] = weighted
+        metrics[v["id"]] = weighted
     winner = max(metrics.items(), key=lambda kv: kv[1])[0] if metrics else None
 
     await db.projects.update_one(

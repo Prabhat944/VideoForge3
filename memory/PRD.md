@@ -85,9 +85,9 @@ Frontend `/templates` — filterable niche pill row (all/finance/horror/motivati
 ## What's working end-to-end (verified by testing agent · 54/54 tests green)
 - Auth, projects CRUD, series.
 - Script → Voice (FS) → Thumbnail (FS) → Scenes (FS, async) → Render (ffmpeg MP4) → Publish.
-- A/B variants, scoring, winner selection.
+- A/B variants, **weighted scoring** (hook 50% / title 20% / overall 30%), winner selection.
 - Niche templates browse + create-from-template.
-- Trends (AI / Reddit / YouTube), calendar, analytics, billing plans, YouTube OAuth URL.
+- Trends — AI / Reddit / YouTube **+ Google Trends (pytrends)** rising queries.
 - Auth-protected media serving (`?token=` for `<img>` & `<audio>`).
 - Stripe checkout flow against Emergent's Stripe proxy.
 - Startup base64-→-FS migration is idempotent.

@@ -62,6 +62,14 @@ async def get_trends(
         except Exception as e:
             logging.warning(f"YouTube trends failed: {e}")
 
+    elif source == "google_trends":
+        try:
+            gt = await trends_service.fetch_google_trends(niche, limit=8)
+            if gt:
+                trends = gt
+        except Exception as e:
+            logging.warning(f"Google Trends failed: {e}")
+
     if not trends and source == "ai" and EMERGENT_LLM_KEY:
         try:
             chat = LlmChat(
