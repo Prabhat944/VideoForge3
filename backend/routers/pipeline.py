@@ -98,8 +98,17 @@ Make it viral, retention-focused. 4-6 scenes."""
             raise ValueError("No JSON in response")
         script = json.loads(match.group())
     except Exception as e:
-        logging.error(f"Script gen error: {e}")
-        raise HTTPException(status_code=500, detail=f"Script generation failed: {str(e)}")
+        error_msg = str(e)
+        logging.error(f"Script gen error: {error_msg}")
+        
+        # Check for budget exceeded error
+        if "budget" in error_msg.lower() or "exceeded" in error_msg.lower():
+            raise HTTPException(
+                status_code=402,  # Payment Required
+                detail="AI budget exceeded. Please add balance to your Universal Key in Profile → Universal Key → Add Balance"
+            )
+        
+        raise HTTPException(status_code=500, detail=f"Script generation failed: {error_msg}")
 
     update = {
         "script": script,
@@ -158,8 +167,17 @@ async def generate_voice(payload: VoiceGenerateRequest, current=Depends(get_curr
             )
             provider = "openai"
     except Exception as e:
-        logging.error(f"TTS error: {e}")
-        raise HTTPException(status_code=500, detail=f"Voice generation failed: {str(e)}")
+        error_msg = str(e)
+        logging.error(f"TTS error: {error_msg}")
+        
+        # Check for budget exceeded error
+        if "budget" in error_msg.lower() or "exceeded" in error_msg.lower():
+            raise HTTPException(
+                status_code=402,
+                detail="AI budget exceeded. Please add balance to your Universal Key in Profile → Universal Key → Add Balance"
+            )
+        
+        raise HTTPException(status_code=500, detail=f"Voice generation failed: {error_msg}")
 
     # Save MP3 to disk for local access, but also store base64 in DB for production/container deployments
     voice_path = storage_service.save_voice(payload.project_id, base64.b64decode(audio_b64))
@@ -218,8 +236,17 @@ async def generate_thumbnail(payload: ThumbnailGenerateRequest, current=Depends(
         # Store base64 as fallback for stateless deployments
         thumb_b64_data_url = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
     except Exception as e:
-        logging.error(f"Thumbnail gen error: {e}")
-        raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {str(e)}")
+        error_msg = str(e)
+        logging.error(f"Thumbnail gen error: {error_msg}")
+        
+        # Check for budget exceeded error
+        if "budget" in error_msg.lower() or "exceeded" in error_msg.lower():
+            raise HTTPException(
+                status_code=402,
+                detail="AI budget exceeded. Please add balance to your Universal Key in Profile → Universal Key → Add Balance"
+            )
+        
+        raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {error_msg}")
 
     await db.projects.update_one(
         {"id": payload.project_id},

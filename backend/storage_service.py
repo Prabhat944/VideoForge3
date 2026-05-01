@@ -11,6 +11,10 @@ import shutil
 import logging
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv(Path(__file__).parent / ".env")
 
 # S3 configuration (optional - only used if configured)
 AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET", "")
