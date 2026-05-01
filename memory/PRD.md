@@ -1,73 +1,106 @@
-# VideoForge AI — Product Requirements Document
+# VideoForge AI — PRD
+
+> Generated/updated by E1 — stage2-modular release · 2026-05-01
 
 ## Original Problem Statement
-Build a full-stack AI-powered SaaS platform that automatically generates and publishes YouTube-ready videos from minimal user input. Pipeline: Topic → Trends → Script → Voice → Visuals → Render → Auto-Publish to YouTube. Includes analytics, series planner, A/B testing, multi-language, niche templates, and Free/Paid tiers.
+Clone `https://github.com/Prabhat944/VideoForge2/tree/stage2`, run end-to-end, then complete:
+- **P0**: move thumbnail + voice MP3 from base64-in-Mongo to filesystem.
+- **P0**: modularise the 1496-line `server.py` into APIRouter files (auth/projects/pipeline/agent/billing/youtube/media).
+- **P1**: Reddit OAuth credentials integration to bypass cloud-IP block.
+- **P1**: Per-project A/B test results dashboard.
+- **P1**: Niche-specific pre-tuned templates (finance / horror / motivation / facts).
 
-## User Personas
-- Faceless content creators scaling YouTube channels (finance, horror, motivation, facts)
-- Marketing teams producing volume video content
-- Solo entrepreneurs building personal brands without filming
+## Architecture (post-stage2)
+```
+backend/
+├── server.py                     # ~70 lines — mounts /api router + 11 sub-routers
+├── core/
+│   ├── config.py                 # env via load_dotenv
+│   ├── db.py                     # single Motor client + db
+│   ├── deps.py                   # JWT bearer, hash/verify password, get_current_user, now_iso
+│   ├── schemas.py                # all Pydantic models
+│   ├── voices.py                 # VOICES + HD_VOICES presets
+│   ├── niche_templates.py        # 8 templates × 4 niches
+│   └── migrations.py             # startup migration: legacy base64 → filesystem
+├── routers/
+│   ├── auth.py                   # /auth/register, /auth/login, /auth/me
+│   ├── projects.py               # CRUD + /projects/series
+│   ├── pipeline.py               # /script, /voice (FS), /thumbnail, /scenes, /render, /publish + A/B
+│   ├── agent.py                  # /agent/run, /agent/status (background pipeline)
+│   ├── billing.py                # /billing/plans, /checkout, /status, /webhook/stripe
+│   ├── youtube.py                # OAuth status/auth-url/callback/disconnect
+│   ├── media.py                  # /media/{kind}/{pid}/{file} (auth-protected)
+│   ├── trends.py                 # AI / Reddit (OAuth or anon) / YouTube trending
+│   ├── templates.py              # /templates listing + /projects/from-template
+│   ├── calendar.py               # /calendar
+│   └── analytics.py              # /analytics/summary
+├── elevenlabs_service.py         # ElevenLabs TTS wrapper
+├── render_service.py             # ffmpeg single-image + multi-scene render
+├── youtube_service.py            # YouTube Data API + Analytics API
+├── trends_service.py             # Reddit (oauth+anon) + YouTube most-popular
+└── storage_service.py            # disk persistence for scenes / thumbnails / voices
 
-## Tech Stack
-- Backend: FastAPI (Python 3.11) + Motor (MongoDB) + FFmpeg
-- Frontend: React 19 + Tailwind + Shadcn UI + Framer Motion + Recharts
-- Auth: JWT (email/password, bcrypt)
-- AI: Emergent Universal LLM Key for GPT-4o-mini (script & trends), OpenAI TTS-1 (voice), GPT Image 1 (thumbnails)
-- Premium voice: ElevenLabs (eleven_multilingual_v2)
-- Video: FFmpeg slideshow + ken-burns + burnt-in subtitles → MP4
-- Distribution: YouTube Data API v3 OAuth
-- Billing: Stripe (Emergent test key)
+frontend/src/pages/
+├── Templates.jsx                 # NEW — niche template browser
+├── ABTest.jsx                    # NEW — per-project A/B dashboard
+└── …existing pages unchanged
+```
 
-## What's Implemented
+## P0 — Storage migration (DONE)
+- `POST /api/projects/voice` writes the MP3 to `/app/backend/media/voices/{project_id}/voice.mp3` and stores `voice.audio_path` + `voice.audio_url`. Response no longer contains `audio_b64`.
+- `POST /api/projects/thumbnail` already wrote PNG to disk in stage1 — confirmed.
+- Startup migration `core/migrations.migrate_base64_to_fs()` is idempotent: detects legacy `voice.audio_b64` and `thumbnail_url` `data:` blobs, writes them to disk and unsets the base64 field. Verified zero legacy blobs in the test DB after run.
 
-### Phase 1 (2026-05-01)
-- JWT auth (register/login/me)
-- Projects CRUD
-- AI Trends API (6h cached)
-- Script generation (GPT-4o-mini) with hook/scenes/CTA/tags + A/B variants
-- Voice generation (OpenAI TTS, 6 voices)
-- Thumbnail generation (GPT Image 1)
-- Bulk content series (1-30 videos)
-- Analytics dashboard (synthetic)
-- Tools comparison
-- Frontend: Landing, Auth, Dashboard, 5-step Wizard, Trends, Analytics, Pricing
+## P0 — Modularisation (DONE)
+`server.py` reduced from **1744** → **~70 lines**. The full feature surface lives under `core/` and `routers/` with clean dependency injection (`Depends(get_current_user)`).
 
-### Phase 2 (2026-05-01)
-- **Real YouTube OAuth + upload**: `/api/youtube/auth-url`, `/api/youtube/callback`, `/api/youtube/status`, `/api/youtube/disconnect`. Real `videos.insert` with thumbnail upload + scheduling support.
-- **FFmpeg video render**: `/api/projects/render` produces MP4 (1920x1080, slow ken-burns zoom, AAC audio, burnt-in subtitle SRT). Served via `/api/projects/{id}/video` (auth-protected).
-- **ElevenLabs premium voices**: 7 curated voices added to `/api/voices`, used when ElevenLabs voice_id selected. ⚠️ ElevenLabs free tier blocked from cloud IPs — requires paid plan to actually synthesize.
-- **Stripe checkout**: `/api/billing/plans`, `/api/billing/checkout`, `/api/billing/status/{id}`, `/api/webhook/stripe`. Plans: Creator $29 (1500 credits), Studio $99 (unlimited), Credits pack $5 (100). Auto-credits on webhook + polling fallback.
-- **Frontend additions**: BillingSuccess page, YouTube Connect card on Dashboard, Premium voice tab in Wizard, Render step (step 5/6) in Wizard, Stripe checkout buttons on Pricing.
-- **Tests**: 46/47 backend tests pass (1 skipped: ElevenLabs 401 from cloud IP — expected).
+## P1 — Reddit OAuth (DONE / inert)
+`trends_service.fetch_reddit_trends()` now obtains a `client_credentials` token from Reddit when `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` are set in `backend/.env`, then queries `oauth.reddit.com` (bypasses cloud-IP block). When credentials are absent the path falls back to anonymous `www.reddit.com` JSON, then to AI / static fallback. Token is cached in-process for 1 h.
 
-## Architecture Notes
-- Backend modules: `server.py` (routes), `youtube_service.py` (OAuth/upload), `render_service.py` (FFmpeg), `elevenlabs_service.py` (TTS)
-- All routes prefixed `/api`. Bearer JWT auth.
-- MongoDB collections: `users`, `projects`, `trends_cache`, `analytics`, `youtube_tokens`, `oauth_states`, `payment_transactions`
-- Stripe Emergent proxy supports create but NOT retrieve sessions; we gracefully fall back to DB state and rely on webhook for paid status
+## P1 — A/B Test Results Dashboard (DONE)
+Backend:
+- `POST /api/projects/script/variants` — generate two scripts (style A / B) in parallel.
+- `GET /api/projects/{id}/variants` — full dashboard payload incl. both scripts, scores, winner, metrics.
+- `POST /api/projects/script/variants/score` — persist hook/title/overall (+ optional note); auto-recomputes `ab_winner` as the variant with the highest `overall`.
+- `POST /api/projects/script/select-variant` — copy the chosen script onto `project.script` and set `selected_variant_id` / `ab_winner` / `status=script_ready`.
 
-## Backlog (Prioritised)
-### P0
-- Real video composition with multi-scene support (per-scene image generation + transitions)
-- ElevenLabs paid plan or alternative cloud-friendly TTS for premium tier
-- Real YouTube analytics ingestion (replace synthetic data once user has uploads)
+Frontend:
+- `/ab-test/:id` — side-by-side comparison page with Title, Hook, Description, top scenes, Tags, three sliders (hook / title / overall) + Note, "Save score" + "Pick winner" buttons. Winner card glows red and shows trophy.
+- Wizard step 2 (Script) gains an "Open A/B test" button.
 
-### P1
-- Real trend sources (YouTube trending API, Reddit, Google Trends)
-- Multi-language UI translations
-- Content calendar with drag-drop scheduling
-- A/B test results dashboard
+## P1 — Niche Templates (DONE)
+Backend (`core/niche_templates.py`) — 8 templates × 4 niches:
+- finance: `finance_money_tips`, `finance_market_news`
+- horror: `horror_dark_story`, `horror_unsolved`
+- motivation: `motivation_success`, `motivation_morning`
+- facts: `facts_did_you_know`, `facts_history`
 
-### P2
-- AI Agent Mode (autonomous topic → upload loop)
-- Niche-specific templates (finance/horror/motivation pre-tuned)
-- Channel multi-management for Studio tier
-- Object storage for media assets (currently base64 in MongoDB)
+Each template carries `duration_seconds`, `tone`, `style`, `voice` preset, `thumbnail_style`, default tags and a `topic_template`. Endpoints:
+- `GET /api/templates` (optional `?niche=`)
+- `GET /api/templates/{id}` (404 on miss)
+- `POST /api/projects/from-template` → creates a project pre-tuned with `template_id` recorded.
 
-## Known Limitations
-- ElevenLabs free tier blocked from cloud/proxy IPs; user needs paid plan for premium voices to work in this deployment
-- Stripe Session.retrieve unsupported by Emergent proxy; payment status updates via webhook (works in production)
-- Video render is single-image slideshow; multi-scene composition is a backlog item
+Frontend `/templates` — filterable niche pill row (all/finance/horror/motivation/facts), template cards with icon, duration / tone / voice meta and a "Use template" CTA that creates the project and jumps into the wizard.
 
-## Test Credentials
-See `/app/memory/test_credentials.md`. `tester@videoforge.ai` / `TestPass123!`
+## What's working end-to-end (verified by testing agent · 54/54 tests green)
+- Auth, projects CRUD, series.
+- Script → Voice (FS) → Thumbnail (FS) → Scenes (FS, async) → Render (ffmpeg MP4) → Publish.
+- A/B variants, scoring, winner selection.
+- Niche templates browse + create-from-template.
+- Trends (AI / Reddit / YouTube), calendar, analytics, billing plans, YouTube OAuth URL.
+- Auth-protected media serving (`?token=` for `<img>` & `<audio>`).
+- Stripe checkout flow against Emergent's Stripe proxy.
+- Startup base64-→-FS migration is idempotent.
+
+## Known limitations (pre-existing)
+- ElevenLabs free tier 401s from cloud IPs → use OpenAI HD tier instead.
+- Stripe `Session.retrieve` not supported by the Emergent proxy → state polled via DB after webhook.
+- Reddit credentials env vars are blank by default; populate to activate real Reddit pulls.
+
+## Test credentials
+`tester@videoforge.ai` / `TestPass123!` (auto-registered).
+
+## Backlog
+**P0**: object storage (S3 / GCS) for true horizontal scale; rate-limit AI endpoints.
+**P1**: Google Trends via pytrends; multi-language UI translations.
+**P2**: channel multi-management (Studio tier), voice cloning, BGM with ducking, brand kit, team seats, "video published" webhook.
