@@ -24,6 +24,7 @@ export default function Dashboard() {
     const { user } = useAuth();
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [yt, setYt] = useState({ connected: false, channel: null });
 
     const load = async () => {
         try {
@@ -33,7 +34,41 @@ export default function Dashboard() {
         finally { setLoading(false); }
     };
 
-    useEffect(() => { load(); }, []);
+    const loadYouTubeStatus = async () => {
+        try {
+            const r = await api.get("/youtube/status");
+            setYt(r.data);
+        } catch (e) {
+            // YouTube not connected or error
+            setYt({ connected: false, channel: null });
+        }
+    };
+
+    const connectYouTube = async () => {
+        try {
+            const r = await api.get("/youtube/auth-url");
+            if (r.data.url) {
+                window.location.href = r.data.url;
+            }
+        } catch {
+            toast.error("Failed to connect YouTube");
+        }
+    };
+
+    const disconnectYouTube = async () => {
+        try {
+            await api.delete("/youtube/disconnect");
+            setYt({ connected: false, channel: null });
+            toast.success("YouTube disconnected");
+        } catch {
+            toast.error("Failed to disconnect");
+        }
+    };
+
+    useEffect(() => {
+        load();
+        loadYouTubeStatus();
+    }, []);
 
     const remove = async (id) => {
         if (!window.confirm("Delete this project?")) return;

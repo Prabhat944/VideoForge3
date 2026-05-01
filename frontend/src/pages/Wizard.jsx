@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Slider } from "../components/ui/slider";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowRight, ArrowLeft, Wand2, Mic, Image as ImageIcon, Upload, Check, Play, Pause, Sparkles, Loader2, Film } from "lucide-react";
+import { ArrowRight, ArrowLeft, Wand2, Mic, Image as ImageIcon, Upload, Check, Play, Pause, Sparkles, Loader2, Film, Crown, Video } from "lucide-react";
 
 const STEPS = [
     { k: "info", label: "Topic", icon: Sparkles },
