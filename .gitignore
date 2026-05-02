@@ -117,3 +117,4 @@ credentials.json
 *.pem
 *.key
 .credentials
+python-wheels.tar.gz
